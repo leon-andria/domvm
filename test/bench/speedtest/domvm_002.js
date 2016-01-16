@@ -1,5 +1,5 @@
 (function(){
-	domvm.useRaf = false;
+	domvm.config({useRaf: false});
 
 	var count = 0;
 
@@ -20,8 +20,8 @@
 
 		function getStyle() {
 			return {
-				top: (Math.sin(count / 10) * 10) + "px",
-				left: (Math.cos(count / 10) * 10) + "px",
+				top: (Math.sin(count / 10) * 10),
+				left: (Math.cos(count / 10) * 10),
 				background: "rgb(0,0," + (count % 255) +")"
 			};
 		}

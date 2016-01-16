@@ -1,6 +1,6 @@
 domvm.js (DOM ViewModel)
 ------------------------
-A thin, fast, dependency-free vdom diffing lib _(MIT Licensed)_
+A thin, fast, dependency-free vdom view layer _(MIT Licensed)_
 
 ---
 ### Features
@@ -51,27 +51,49 @@ var domvm = require("domvm");
 ["input", {type: "checkbox", checked: true}]				// boolean attrs
 ["input", {type: "checkbox", ".checked": true}]				// set property instead of attr
 ["button", {onclick: function(e) {...}}, "Hello"]			// event handlers
-["ul", {onclick: [".item", function(e) {...}]}, "Hello"]	// event handlers (delegated)
+["ul", {onclick: {".item": function(e) {...}}}, "Hello"]	// event handlers (delegated)
 ["p", {style: "font-size: 10pt;"}, "Hello"]					// style can be a string
-["p", {style: {fontSize: "10pt;"}}, "Hello"]				// ... or an object (camelCase only)
+["p", {style: {fontSize: "10pt"}}, "Hello"]					// ... or an object (camelCase only)
 
-["h1", [													// child array can follow tag
-	["em", "Important!"],
-	["sub", "tiny"],
+["h1", [													// explicit child array can follow tag
+	["em", "Important!"],									// but first child cannot be a function
+	["sub", "tiny"],										// or text node (see why below)
 ]]
 
-["a", {href: "/cows"}, [									// ... and can contain text nodes
+["h1",														// or children can follow tag (JSONML)
+	["em", "Important!"],									// this style has no restrictions
+	["sub", "tiny"],
+]
+
+["a", {href: "/cows"},										// children can contain text nodes
 	"foo",
 	["br"],
 	["strong", "bar"],
 	"baz",
-]]
+	function() { return ["div", "clown"]; },				// and functions returning a node
+]
 
-["#ui", [													// same as div#ui
-	SomeViewFn												// sub-view with closured data
+["p", function() {											// ... or funcs returning a body
+	return [
+		["span", "foo"],
+		["em", "bar"],
+	];
+}]
+
+["div",														// child sub-arrays get flattened
+	["span", "some text"],
+	[
+		["strong", "stuff"],
+		["em", "more stuff"],
+	],
+]
+
+["#ui",														// same as div#ui
+	[SomeViewFn]											// sub-view w/closured data
 	[NavBarView, navbar],									// sub-view w/model
 	[PanelView, panel, "panelA"],							// sub-view w/model & key
-]]
+	preInitVm,												// pre-initialized ViewModel
+]
 
 // some special props...
 

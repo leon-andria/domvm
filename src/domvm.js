@@ -1,9 +1,9 @@
 /**
-* Copyright (c) 2015, Leon Sorokin
+* Copyright (c) 2016, Leon Sorokin
 * All rights reserved. (MIT Licensed)
 *
 * domvm.js - DOM ViewModel
-* A thin, fast, dependency-free vdom diffing lib
+* A thin, fast, dependency-free vdom view layer
 * https://github.com/leeoniya/domvm
 */
 
@@ -27,43 +27,98 @@
 	var TYPE_ELEM = 1;
 	var TYPE_TEXT = 2;
 //  var TYPE_RAWEL = 3;
-	var TYPE_FRAG = 4;
-
-	var REDRAW_NONE = 0;
-	var REDRAW_ROOT = 1;
-	var REDRAW_SELF = 2;
+//	var TYPE_FRAG = 4;
 
 	var DONOR_DOM	= 1;
 	var DONOR_NODE	= 2;
 
-	createView.viewScan = false;	// enables aggressive unkeyed view reuse
-	createView.useRaf = true;
-//	createView.useDOM = true;
-	createView.autoRedraw = REDRAW_NONE;
+	var t = true;
+	var unitlessProps = {
+		animationIterationCount: t,
+		boxFlex: t,
+		boxFlexGroup: t,
+		columnCount: t,
+		counterIncrement: t,
+		fillOpacity: t,
+		flex: t,
+		flexGrow: t,
+		flexOrder: t,
+		flexPositive: t,
+		flexShrink: t,
+		float: t,
+		fontWeight: t,
+		gridColumn: t,
+		lineHeight: t,
+		lineClamp: t,
+		opacity: t,
+		order: t,
+		orphans: t,
+		stopOpacity: t,
+		strokeDashoffset: t,
+		strokeOpacity: t,
+		strokeWidth: t,
+		tabSize: t,
+		transform: t,
+		transformOrigin: t,
+		widows: t,
+		zIndex: t,
+		zoom: t,
+	};
+
+	var cfg = {
+		useRaf: true,
+		viewScan: false,	// enables aggressive unkeyed view reuse
+		useDOM: false,
+
+	};
+
+	createView.config = function(newCfg) {
+		cfg = newCfg;
+	};
 
 	return createView;
 
 	// creates closure
-	function createView(viewFn, model, _key, opts, rendArgs, parentNode, idxInParent) {
+	// TODO: need way to indicate detached vm vs parent-less root, to prevent un-needed initial redraw
+	function createView(viewFn, model, _key, rendArgs, opts, parentNode, idxInParent) {
 		var isRootNode = !parentNode;
 
 		// for domvm([MyView, model, _key])
 		if (isArr(viewFn)) {
 			model = viewFn[1];
 			_key = viewFn[2];
-			opts = viewFn[3];
-			rendArgs = viewFn[4];
+			rendArgs = viewFn[3];
+			opts = viewFn[4];
 			viewFn = viewFn[0];
 		}
 
+		var origModel = model || null;
+
+		// special case model = ctx + model
+		model = (model && model.ctx && model.model) ? model.model : origModel;
+
 		var vm = {
+			ctx: {},
 			node: null,
 			view: [viewFn, model, _key],
-			redraw: createView.useRaf ? raft(redraw) : redraw,
+			redraw: cfg.useRaf ? raft(redraw) : redraw,
 			emit: emit,
 			refs: {},
 			html: function() {
 				return collectHtml(vm.node);
+			},
+			keyMap: {},
+			patch: function() {
+				var targs = arguments;
+
+				for (var i = 0; i < targs.length; i++) {
+					var key = targs[i][1]._key,
+						donor = vm.keyMap[key],
+						parent = donor.parent,
+						node = buildNode(initNode(targs[i], parent, donor.idx, vm), donor);
+
+					parent.body[donor.idx] = parent.keyMap[key] = vm.keyMap[key] = node;
+				}
 			},
 			mount: function(el) {		// appendTo?
 				hydrateNode(vm.node);
@@ -79,34 +134,21 @@
 			// internal util funcs
 			moveTo: moveTo,
 			updIdx: updIdx,
-			wrapHandler: wrapHandler,
 		};
 
-		var view = viewFn(vm, model, _key);
+		var view = viewFn.call(vm.ctx, vm, origModel, _key);
 
 		view = isFunc(view) ? {render: view} : view;
 		view.on = view.on || {};
-		view.on._redraw = redraw;
+		view.on._redraw = vm.redraw;
 
 		vm.view[3] = view;
 
-		// creates a curried emit
-		emit.create = function() {
-			var args = arguments;
-			return function() {
-				emit.apply(null, args);
-			};
-		};
-
 		// targeted by depth or by key, root = 1000
+		// todo: pass through args
 		emit.redraw = function(targ) {
 			targ = isVal(targ) ? targ : 1000;
-
 			emit("_redraw:" + targ);
-
-		//	return function() {
-		//		emit("_redraw:" + targ);		// todo: pass through args
-		//	};
 		};
 
 		if (parentNode)
@@ -116,10 +158,6 @@
 
 		// transplants node into tree, optionally updating rendArgs
 		function moveTo(parentNodeNew, idxInParentNew, rendArgsNew) {
-			// null out in old parent
-			if (parentNode)
-				parentNode.body[idxInParent] = null;		// splice?
-
 			parentNode = parentNodeNew;
 			updIdx(idxInParentNew);
 
@@ -133,8 +171,11 @@
 		function redraw(rendArgsNew, isRedrawRoot) {
 			rendArgs = rendArgsNew || rendArgs;
 
+			vm.refs = {};
+			vm.keyMap = {};
+
 			var old = vm.node;
-			var def = vm.view[3].render.apply(null, rendArgs);
+			var def = vm.view[3].render.apply(model, rendArgs);
 			var node = initNode(def, parentNode, idxInParent, vm);
 
 			node.key = isVal(_key) ? _key : node.key;
@@ -169,8 +210,8 @@
 			}
 
 			setTimeout(function() {
-				vm.refs = {};
-				collectRefs(node, vm);
+				collectRefs(vm);
+
 				exec(vm.view[3].after);
 			}, 0);
 
@@ -200,29 +241,6 @@
 			// more cleanup?
 
 			exec(vm.view[3].cleanup);
-		}
-
-		function wrapHandler(fn, filt) {
-			var matches = isVal(filt) ? function(e) { return e.target.matches(filt); } : isFunc(filt) ? filt : null;
-
-			var handler = function(e) {
-				if (!filt || matches(e)) {
-					if (fn.call(e.target, e) === false) {
-						e.preventDefault();
-						e.stopPropagation();		// yay or nay?
-					}
-				}
-
-				switch (createView.autoRedraw) {
-					case REDRAW_SELF: redraw(); break;
-					case REDRAW_ROOT: emit.redraw()(); break;
-				}
-			};
-
-			// expose original for cmp
-			handler._fn = fn;
-
-			return handler;
 		}
 
 		function emit(event) {
@@ -278,9 +296,9 @@
 			for (var i = 0; i < node.body.length; i++) {
 				var node2 = node.body[i];
 				// handle empty text nodes stripped by innerHTML, inject them into DOM here
-				var isEmptyTextNode = node2 && node2.type === TYPE_TEXT && node2.body === "";
-				if (isEmptyTextNode)
-					el.insertBefore(document.createTextNode(""), el.childNodes[i] || null);
+		//		var isEmptyTextNode = node2 && node2.type === TYPE_TEXT && node2.body === "";
+		//		if (isEmptyTextNode)
+		//			el.insertBefore(document.createTextNode(""), el.childNodes[i] || null);
 
 				hydrateWith(node2, el.childNodes[i]);
 			}
@@ -292,7 +310,7 @@
 			node.body.forEach(function(n, i) {
 				if (!n) return;
 
-				if (n.vm)
+				if (n.vm && !n.moved)
 					n.vm.destroy();
 				else {
 					if (n.el && n.el.parentNode)
@@ -305,6 +323,8 @@
 			node.body = null;
 		}
 
+		node.vm = null;
+
 		if (removeSelf && node.el) {
 			node.el.parentNode.removeChild(node.el);
 			node.el = null;
@@ -316,36 +336,89 @@
 	function initNode(def, parentNode, idxInParent, ownerVm) {
 		var node = procNode(def, ownerVm);
 
+		// store a ref to this node for later ref collection to avoid full tree walking
+		if (node.ref !== null)
+			ownerVm.refs[node.ref] = node;
+
 		node.parent = parentNode;
 		node.idx = idxInParent;
 		node.ns = parentNode && parentNode.ns ? parentNode.ns : (node.tag === "svg" || node.tag === "math") ? node.tag : null;
-	//	node.svg = parentNode ? parentNode.svg : node.tag === "svg";
-	//	node.math = parentNode ? parentNode.math : node.tag === "math";
 
 		if (isArr(node.body)) {
 			var keyMap = {}, anyKeys = false;
 
-			node.body.forEach(function(def2, i) {
-				var key = null, node2 = null;
+			for (var i = 0, len = node.body.length; i < len; i++) {
+				var def2 = node.body[i];
 
+				var key = null, node2 = null, killIt = false, mergeIt = false;
+
+				// getters
 				if (isFunc(def2))
-					def2 = [def2];
+					def2 = def2();
 
-				if (isArr(def2) && isFunc(def2[0]))
-					key = def2[2];
+				// kill null and undefined nodes
+				if (def2 == null)
+					killIt = true;
 				else {
-					node2 = initNode(def2, node, i, ownerVm);
-					key = node2.key;
+					var def2IsArr = isArr(def2),
+						def2IsObj = def2IsArr ? false : isObj(def2);		// technically, isPlainObj
+
+					if (def2IsArr) {
+						// kill empty array nodes
+						if (!def2.length)
+							killIt = true;
+						// handle arrays of arrays, avoids need for concat() in tpls
+						else if (isArr(def2[0]))
+							mergeIt = true;
+						else if (isFunc(def2[0]))	// decl sub-view
+							key = def2[2];
+						else {
+							node2 = initNode(def2, node, i, ownerVm);
+							key = node2.key;
+						}
+					}
+					else if (def2IsObj) {
+						if (isFunc(def2.redraw)) {	// pre-init vm
+							def2.moveTo(node, i);
+							node2 = def2.node;
+							key = def2.view[2];
+						}
+						else {
+							node.body[i--] = ""+def2;
+							continue;
+						}
+					}
+					else {
+						if (def2 === "")
+							killIt = true;
+						// merge if adjacent text nodes
+						else if (i > 0 && node.body[i-1].type === TYPE_TEXT) {		//  && isVal(def2)
+							node.body[i-1].body += ""+def2;
+							killIt = true;
+						}
+						else
+							node2 = initNode(""+def2, node, i, ownerVm);
+					}
+				}
+
+				if (killIt || mergeIt) {
+					if (mergeIt)
+						insertArr(node.body, def2, i, 1);
+					else
+						node.body.splice(i,1);
+
+					len = node.body.length;
+					i--; continue;	// avoids de-opt
 				}
 
 				if (isVal(key)) {
 					keyMap[key] = i;
+					ownerVm.keyMap[key] = node2;
 					anyKeys = true;
 				}
 
-
 				node.body[i] = node2 || def2;
-			});
+			}
 
 			if (anyKeys)
 				node.keyMap = keyMap;
@@ -391,6 +464,8 @@
 				// fall through no donor found
 				if (isView)
 					createView.apply(null, [kid[0], kid[1], kid[2], kid[3], kid[4], node, i]);
+				else
+					node.body[i] = buildNode(kid);
 			});
 		}
 
@@ -411,9 +486,7 @@
 			}
 
 			if (isArr(node.body)) {
-				node.body.forEach(function(n2, i) {
-					hydrateNode(n2);
-				});
+				node.body.forEach(hydrateNode);
 			}
 			// for body defs like ["a", "blaahhh"], entire body can be dumped at once
 			else if (wasDry && isVal(node.body))
@@ -468,7 +541,7 @@
 
 					// it's expensive without WeakMaps to check if unkeyed views' old view/model combo
 					// exists in new tree, so they will be destroyed and dom re-used....unless domvm.viewScan = true
-					if (createView.viewScan) {
+					if (cfg.viewScan) {
 						for (var j = 0; j < newBody.length; j++) {
 							var n = newBody[j];
 							if (!n.el && n.vm && n.vm.view[0] === o.vm.view[0] && n.vm.view[1] === o.vm.view[1]) {
@@ -524,6 +597,8 @@
 		// text -> []
 		else if (oTxt && !nTxt)
 			n.el.textContent = "";
+
+		o.moved = true;
 	}
 
 	function parseTag(rawTag) {
@@ -576,39 +651,43 @@
 	function procNode(raw, ownerVm) {
 		var node = {
 			type: null,		// elem, text, frag (todo)
-			name: null,		// view name populated externally by createView
+//			name: null,		// view name populated externally by createView
 			key: null,		// view key populated externally by createView
 			ref: null,
 			idx: null,
 			parent: null,
+			moved: false,
 			tag: null,
 //			svg: false,
 //			math: false,
 			ns: null,
 			guard: false,	// created, updated, but children never touched
 			props: null,
-			on: null,
+//			on: null,
 			el: null,
 			keyMap: null,	// holds idxs of any keyed children
 			body: null,
 		};
 
+		// getters
+		if (isFunc(raw))
+			raw = raw();
+
 		if (isArr(raw) && raw.length) {
 			node.type = TYPE_ELEM;
 
-			switch (raw.length) {
-				case 2:
-					if (isArr(raw[1]))
-						node.body = raw[1];
-					else if (isObj(raw[1]))
-						node.props = raw[1];
-					else
-						node.body = raw[1];
-					break;
-				case 3:
+			if (raw.length > 1) {
+				var bodyIdx = 1;
+
+				if (isObj(raw[1])) {
 					node.props = raw[1];
-					node.body = raw[2];
-					break;
+					bodyIdx = 2;
+				}
+
+				if (raw.length == bodyIdx + 1)
+					node.body = isVal(raw[bodyIdx]) ? raw[bodyIdx] : isFunc(raw[bodyIdx]) ? raw[bodyIdx]() : raw.slice(bodyIdx);
+				else
+					node.body = raw.slice(bodyIdx);
 			}
 
 			procTag(raw[0], node);
@@ -616,7 +695,10 @@
 			if (node.props)
 				procProps(node.props, node, ownerVm);
 
-			// isFunc(body)?
+			// promises
+		//	else if (isProm(node.body))
+		//		node.body = "";
+
 		}
 		// plain strings/numbers
 		else if (isVal(raw)) {
@@ -640,10 +722,32 @@
 		return prop.substr(0,2) === "on";
 	}
 
+	function wrapHandler(fns, ctx) {
+		var handler = function(e) {
+			var res;
+
+			if (isFunc(fns))
+				res = fns.call(ctx, e);
+			else if (isObj(fns)) {
+				for (var filt in fns) {
+					if (e.target.matches(filt))
+						res = fns[filt].call(ctx, e);
+				}
+			}
+
+			if (res === false) {
+				e.preventDefault();
+				e.stopPropagation();		// yay or nay?
+			}
+		};
+
+		return handler;
+	}
+
 	function procProps(props, node, ownerVm) {
 		for (var i in props) {
 			if (isEvProp(i))
-				props[i] = isFunc(props[i]) ? ownerVm.wrapHandler(props[i]) : isArr(props[i]) ? ownerVm.wrapHandler(props[i][0], props[i][1]) : null;
+				props[i] = wrapHandler(props[i], ownerVm.view[1] || null);
 			// getters
 			else if (isFunc(props[i]))
 				props[i] = props[i]();
@@ -665,14 +769,14 @@
 
 		if (props._ref)
 			node.ref = props._ref;
-		if (props._name)
-			node.name = props._name;
+//		if (props._name)
+//			node.name = props._name;
 		if (props._guard)
 			node.guard = props._guard;
 
 		props._ref =
 		props._key =
-		props._name =
+//		props._name =
 		props._guard = null;
 	}
 
@@ -708,7 +812,7 @@
 
 			// add new or mutate existing not matching old
 			// also handles diffing of wrapped event handlers via exposed original (_fn)
-			if (!(name in op) || (isEvProp(name) ? np[name]._fn !== op[name]._fn : np[name] !== op[name]))
+			if (!(name in op) || np[name] !== op[name])
 				set(targ, name, np[name], ns, init);
 		}
 		// remove any removed
@@ -723,11 +827,11 @@
 //  function setEvt(targ, name, val) {targ.addEventListener(name, val, false);};	// tofix: if old node exists (grafting), then don't re-add
 //  function delEvt(targ, name, val) {targ.removeEventListener(name, val, false);};
 
-	function setData(targ, name, val, ns, init) {targ.dataset[name] = val;};
-	function delData(targ, name, ns, init) {targ.dataset[name] = "";};
+//	function setData(targ, name, val, ns, init) {targ.dataset[name] = val;};
+//	function delData(targ, name, ns, init) {targ.dataset[name] = "";};
 
-	function setCss(targ, name, val) {targ.style[name] = val;};
-	function delCss(targ, name) {targ.style[name] = "";};
+	function setCss(targ, name, val) {targ.style[name] = !isNaN(val) && !unitlessProps[name] ? (val + "px") : val;}
+	function delCss(targ, name) {targ.style[name] = "";}
 
 	function setAttr(targ, name, val, ns, init) {
 		if (name[0] === ".") {
@@ -738,7 +842,7 @@
 				targ[n] = val;
 		}
 		else if (name === "class")
-			targ.className = val;	  // svg is setattrns?
+			targ.className = val;
 		else if (name === "id" || isEvProp(name))
 			targ[name] = val;	  // else test delegation for val === function vs object
 		else if (val === false)
@@ -746,7 +850,8 @@
 		else {
 			if (val === true)
 				val = "";
-			ns ? targ.setAttributeNS(null, name, val) : targ.setAttribute(name, val);
+
+			targ.setAttribute(name, val);
 		}
 	}
 
@@ -761,23 +866,16 @@
 				targ[n] = null;					// or = ""?
 		}
 		else if (name === "class")
-			targ.className = "";				// svg is setattrns?
+			targ.className = "";
 		else if (name === "id" || isEvProp(name))
 			targ[name] = null;
 		else
-			ns ? targ.removeAttributeNS(null, name) : targ.removeAttribute(name);
+			targ.removeAttribute(name);
 	}
 
-	function collectRefs(node, parentVm) {
-		var refs = (node.vm || parentVm).refs;
-
-		if (node.ref !== null && node.el)
-			refs[node.ref] = node.el;
-		if (isArr(node.body)) {
-			node.body.forEach(function(n) {
-				collectRefs(n, node.vm || parentVm);
-			});
-		}
+	function collectRefs(vm) {
+		for (var i in vm.refs)
+			vm.refs[i] = vm.refs[i].el;
 	}
 
 	function collectHtml(node) {
@@ -847,21 +945,25 @@
 	}
 
 	function isArr(val) {
-		return Array.isArray(val);
+		return val instanceof Array;
 	}
 
 	function isVal(val) {
 		var t = typeof val;
-		return t === "string" || t === "number" && !isNaN(val) && val !== Infinity;
+		return t === "string" || t === "number";
 	}
 
 	function isObj(val) {
-		return Object.prototype.toString.call(val) === "[object Object]";
+		return typeof val === "object" && val !== null && !isArr(val);
 	}
 
 	function isFunc(val) {
 		return typeof val === "function";
 	}
+
+//	function isProm(val) {
+//		typeof val === "object" && isFunc(val.then);
+//	}
 
 	function camelDash(val) {
 		return val.replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase();
@@ -871,6 +973,10 @@
 	function exec(fn, args) {
 		if (fn)
 			return fn.apply(null, args);
+	}
+
+	function insertArr(targ, arr, pos, rem) {
+		targ.splice.apply(targ, [pos, rem].concat(arr));
 	}
 
 	// https://github.com/darsain/raft

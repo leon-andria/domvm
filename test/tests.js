@@ -1,4 +1,4 @@
-domvm.useRaf = false;
+domvm.config({useRaf: false});
 var instr = new DOMInstr();
 
 var testyDiv = document.getElementById("testy");
@@ -364,6 +364,22 @@ QUnit.module("Other mods");
 			}
 		}
 	}
+
+	QUnit.test('flatten arrays of arrays', function(assert) {
+		var items = ["a","b","c"];
+
+		tpl = ["div", [
+			items.map((item) => ["div", item]),
+			["br"],
+		]];
+		var expcHtml = '<div><div>a</div><div>b</div><div>c</div><br></div>';
+
+		instr.start();
+		var vm = domvm(View).mount(testyDiv);
+		var callCounts = instr.end();
+
+		evalOut(assert, vm.node.el, vm.html(), expcHtml, callCounts, { createElement: 5, insertBefore: 5, textContent: 3 });
+	});
 
 	QUnit.test('(root) span -> a', function(assert) {
 		tpl = ["span", "foo"];
@@ -861,31 +877,27 @@ QUnit.module("Subview redraw() Branch Consistency");
 	function Parent() {
 		this.kids = [];
 
-		var ctx = this;
-		this.view = function ParentView(vm) {
-			// viewState should be closured here, and this func only called once
-			ctx.vm = vm;
+		this.view = [function ParentView(vm, parent) {
+			parent.vm = vm;
 			return {
 				render: function() {
-					return ["ul", ctx.kids.map((kid) => kid.view)];
+					return ["ul", parent.kids.map((kid) => kid.view)];
 				}
 			}
-		}
+		}, this];
 	}
 
 	function Child(name) {
 		this.name = name;
 
-		var ctx = this;
-		this.view = function ChildView(vm) {
-			// viewState should be closured here, and this func only called once
-			ctx.vm = vm;
+		this.view = [function ChildView(vm, child) {
+			child.vm = vm;
 			return {
 				render: function() {
-					return ["li", ctx.name];
+					return ["li", child.name];
 				}
 			}
-		}
+		}, this];
 	}
 
 	var mom = new Parent();
@@ -943,22 +955,252 @@ QUnit.module("Subview redraw() Branch Consistency");
 	// TODO: also with passed-in data
 })();
 
-QUnit.module("after()");
+QUnit.module("Various Others");
+
+(function() {
+	function SomeView(vm) {
+		return {
+			render: function() {
+				return ["div", [
+					["div", [
+						["strong", [
+							[SomeView2]
+						]]
+					]]
+				]]
+			}
+		}
+	}
+
+	function SomeView2(vm) {
+		return {
+			render: function() {
+				return ["em", "yay!"];
+			}
+		}
+	}
+
+	QUnit.test('Init sub-view buried in plain nodes', function(assert) {
+		var expcHtml = '<div><div><strong><em>yay!</em></strong></div></div>';
+
+		instr.start();
+		vm = domvm(SomeView).mount(testyDiv);
+		var callCounts = instr.end();
+
+		evalOut(assert, vm.node.el, vm.html(), expcHtml, callCounts, { createElement: 4, insertBefore: 4, textContent: 1 });
+	});
+
+
+	function FlattenView(vm) {
+		return {
+			render: function() {
+				return ["div", [
+					["br"],
+					"hello kitteh",
+					[
+						["em", "foo"],
+						["em", "bar"],
+						[SomeView2],
+						"woohoo!",
+						[
+							[SomeView2],
+							["i", "another thing"],
+						]
+					],
+					"the end",
+				]];
+			}
+		}
+	}
+
+	QUnit.test('Flatten child sub-arrays', function(assert) {
+		var expcHtml = '<div><br>hello kitteh<em>foo</em><em>bar</em><em>yay!</em>woohoo!<em>yay!</em><i>another thing</i>the end</div>';
+
+		instr.start();
+		vm = domvm(FlattenView).mount(testyDiv);
+		var callCounts = instr.end();
+
+		evalOut(assert, vm.node.el, vm.html(), expcHtml, callCounts, { createElement: 7, createTextNode: 3, insertBefore: 10, textContent: 5 });
+	});
+})();
+
+
+QUnit.module("Function node types & values");
+
+(function() {
+	function ViewAny(vm) {
+		return {
+			render: function() {
+				return tpl;
+			}
+		}
+	}
+
+	function ViewAny2(vm) {
+		return {
+			render: function() {
+				return tpl2;
+			}
+		}
+	}
+
+	var tpl = null;
+	var tpl2 = null;
+
+	QUnit.test('Root node is function that returns node', function(assert) {
+		tpl = function() {
+			return ["p", "some text"];
+		}
+
+		var expcHtml = '<p>some text</p>';
+
+		instr.start();
+		vm = domvm(ViewAny).mount(testyDiv);
+		var callCounts = instr.end();
+
+		evalOut(assert, vm.node.el, vm.html(), expcHtml, callCounts, { createElement: 1, insertBefore: 1, textContent: 1 });
+	});
+
+	QUnit.test('Body is getter function that returns text value', function(assert) {
+		tpl = ["p", function() { return "some text" }];
+
+		var expcHtml = '<p>some text</p>';
+
+		instr.start();
+		vm = domvm(ViewAny).mount(testyDiv);
+		var callCounts = instr.end();
+
+		evalOut(assert, vm.node.el, vm.html(), expcHtml, callCounts, { createElement: 1, insertBefore: 1, textContent: 1 });
+	});
+
+	QUnit.test('Body is function that returns child array', function(assert) {
+		tpl = ["p", function() { return [["strong", "some text"]] }];
+
+		var expcHtml = '<p><strong>some text</strong></p>';
+
+		instr.start();
+		vm = domvm(ViewAny).mount(testyDiv);
+		var callCounts = instr.end();
+
+		evalOut(assert, vm.node.el, vm.html(), expcHtml, callCounts, { createElement: 2, insertBefore: 2, textContent: 1 });
+	});
+
+	QUnit.test('Child node is function that returns node', function(assert) {
+		tpl = ["p", "something ", function() { return ["em", "foo"] }];
+
+		var expcHtml = '<p>something <em>foo</em></p>';
+
+		instr.start();
+		vm = domvm(ViewAny).mount(testyDiv);
+		var callCounts = instr.end();
+
+//		console.log(vm.node.el.outerHTML);
+
+		evalOut(assert, vm.node.el, vm.html(), expcHtml, callCounts, { createElement: 2, insertBefore: 3, createTextNode: 1, textContent: 1 });
+	});
+/*
+	TODO: this test fails but is visually correct, need to fix bug: implement adjacent text node merging
+	QUnit.test('Child node is getter function that returns text value', function(assert) {
+		tpl = ["p", "something ", function() { return "some text" }];		// cannot have child array that starts with text node
+
+		var expcHtml = '<p>something some text</p>';
+
+		instr.start();
+		vm = domvm(ViewAny).mount(testyDiv);
+		var callCounts = instr.end();
+
+//		console.log(vm.node.el.outerHTML);
+
+		evalOut(assert, vm.node.el, vm.html(), expcHtml, callCounts, { createElement: 1, insertBefore: 3, createTextNode: 2 });
+	});
+
+/*
+	QUnit.test('Body is function that returns single node', function(assert) {
+		tpl = ["p", function() { return ["strong", "some text"] }];
+
+		var expcHtml = '<p><strong>some text</strong></p>';
+
+		instr.start();
+		vm = domvm(ViewAny).mount(testyDiv);
+		var callCounts = instr.end();
+
+		evalOut(assert, vm.node.el, vm.html(), expcHtml, callCounts, { createElement: 2, insertBefore: 2, textContent: 1 });
+	});
+*/
+	/*
+	// Higher-order (functions that return complex nodes that need further recursive processing)
+	// TODO?: higher order functions that return functions
+	// Need to do a do/while loop to iterativly simplify nodes
+	QUnit.test('Child node is function that returns sub-view', function(assert) {
+		tpl = ["p", [function() { tpl2 = ["em", "some text"]; return [ViewAny2]; }]];
+
+		var expcHtml = '<p>some text</p>';
+
+		instr.start();
+		vm = domvm(ViewAny).mount(testyDiv);
+		var callCounts = instr.end();
+
+		evalOut(assert, vm.node.el, vm.html(), expcHtml, callCounts, { createElement: 1, insertBefore: 1, textContent: 1 });
+	});
+
+	QUnit.test('Child node is function that returns sub-array', function(assert) {
+		tpl = ["p", [["p", "moo"], function() { [["p", "cow"], ["em", "some text"]] }]];
+
+		var expcHtml = '<p>some text</p>';
+
+		instr.start();
+		vm = domvm(ViewAny).mount(testyDiv);
+		var callCounts = instr.end();
+
+		evalOut(assert, vm.node.el, vm.html(), expcHtml, callCounts, { createElement: 1, insertBefore: 1, textContent: 1 });
+	});
+	*/
+
+	QUnit.test('Attribute value is function/getter', function(assert) {
+		tpl = ["input", {value: function() { return "moo"; }}];
+
+		var expcHtml = '<input value="moo">';
+
+		instr.start();
+		vm = domvm(ViewAny).mount(testyDiv);
+		var callCounts = instr.end();
+
+		evalOut(assert, vm.node.el, vm.html(), expcHtml, callCounts, { createElement: 1, insertBefore: 1, setAttribute: 1 });
+	});
+
+	QUnit.test('Style object attr value is function/getter', function(assert) {
+		tpl = ["input", {style: {width: function() { return "20px"; }}}];
+
+		var expcHtml = '<input style="width: 20px;">';
+
+		instr.start();
+		vm = domvm(ViewAny).mount(testyDiv);
+		var callCounts = instr.end();
+
+		evalOut(assert, vm.node.el, vm.html(), expcHtml, callCounts, { createElement: 1, insertBefore: 1 });
+	});
+
+	// style object value is function/getter
+	// special props, id, className, _key, _ref?
+})();
+
+QUnit.module("after() & refs");
 
 (function() {
 	QUnit.test('after() is called on self', function(assert) {
-		assert.expect(1);
+		assert.expect(2);
 
 		var done = assert.async();
 
 		function MyView(vm) {
-			// viewState should be closured here, and this func only called once
 			return {
+				render: function() {
+					return ["span#zzz", {_ref: "mySpan3"}, "foo"];
+				},
 				after: function() {
 					assert.ok(true, "Self after()");
-				},
-				render: function() {
-					return ["span", "foo"];
+					assert.ok(vm.refs.mySpan3 === document.getElementById("zzz"), "Self ref");
+					console.log(vm.refs);
 				}
 			}
 		}
@@ -969,30 +1211,32 @@ QUnit.module("after()");
 	});
 
 	QUnit.test('after() is called on subviews when parent redraws', function(assert) {
-		assert.expect(2);
+		assert.expect(4);
 
 		var done = assert.async();
 
 		function MyView(vm) {
-			// viewState should be closured here, and this func only called once
 			return {
+				render: function() {
+					return ["span#xxx", {_ref: "mySpan1"}, [[MyView2]]];
+				},
 				after: function() {
 					assert.ok(true, "Parent after()");
-				},
-				render: function() {
-					return ["span", [MyView2]];
+					assert.ok(vm.refs.mySpan1 === document.getElementById("xxx"), "Parent ref");
+					console.log(vm.refs);
 				}
 			}
 		}
 
 		function MyView2(vm) {
-			// viewState should be closured here, and this func only called once
 			return {
+				render: function() {
+					return ["span#yyy", {_ref: "mySpan2"}, "foo"];
+				},
 				after: function() {
 					assert.ok(true, "Child after()");
-				},
-				render: function() {
-					return ["span", "foo"];
+					assert.ok(vm.refs.mySpan2 === document.getElementById("yyy"), "Child ref");
+					console.log(vm.refs);
 				}
 			}
 		}
@@ -1000,5 +1244,58 @@ QUnit.module("after()");
 		var vm = domvm(MyView).mount(testyDiv);
 
 		setTimeout(done, 1);
+
+		// todo: ensure refs get re-ref'd on redraw/reuse
+	});
+})();
+
+QUnit.module("Unrenderable values");
+
+(function() {
+	function ViewAny(vm) {
+		return {
+			render: function() {
+				return tpl;
+			}
+		}
+	}
+
+	var tpl = null,
+		vm = null;
+
+	QUnit.test('Values are properly coerced or ignored', function(assert) {
+		tpl = ["div", 0, 25, "", NaN, 19, undefined, function() {return "blah";}, [], Infinity, null, {}, true, "yo", false];
+
+		var expcHtml = '<div>025NaN19blahInfinity[object Object]trueyofalse</div>';
+
+		instr.start();
+		vm = domvm(ViewAny).mount(testyDiv);
+		var callCounts = instr.end();
+
+		evalOut(assert, vm.node.el, vm.html(), expcHtml, callCounts, { createElement: 1, insertBefore: 2, createTextNode: 1 });
+	});
+
+	QUnit.test('Mutation of some nodes is consistent and does correct DOM ops', function(assert) {
+		tpl = ["div", 0, ["span", "moo"], undefined, function() {return "blah";}, [["span", "bar"],["span","baz"]], Infinity, null, false];
+
+		var expcHtml = '<div>0<span>moo</span>blah<span>bar</span><span>baz</span>Infinityfalse</div>';
+
+		instr.start();
+		vm.redraw();
+		var callCounts = instr.end();
+
+		evalOut(assert, vm.node.el, vm.html(), expcHtml, callCounts, { createElement: 3, createTextNode: 2, insertBefore: 5, nodeValue: 1, textContent: 3 });
+	});
+
+	QUnit.test('Empty text nodes should be squashed (isomorphism/innerHTML)', function(assert) {
+		tpl = ["div", "", ["span", "moo"], "", ["span", "cow"], ""];
+
+		var expcHtml = '<div><span>moo</span><span>cow</span></div>';
+
+		instr.start();
+		var vm2 = domvm(ViewAny).mount(testyDiv);
+		var callCounts = instr.end();
+
+		evalOut(assert, vm2.node.el, vm2.html(), expcHtml, callCounts, { createElement: 3, insertBefore: 3, textContent: 2 });
 	});
 })();
