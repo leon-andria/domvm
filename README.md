@@ -3,9 +3,11 @@ domvm.js (DOM ViewModel)
 A thin, fast, dependency-free vdom view layer _(MIT Licensed)_
 
 ---
-### Concept
+### Philosophy
 
-Components should not be UI-centric or purely declarative/functional as they are in most front-end frameworks. They should be normal, reusable JS objects with APIs or domain models with methods. These components can then expose one or multiple views - each with its own state or view API that can then be freely composed into a full view structure. Alternatively you can create views into your components externally and choose either declarative or imperative composition. domvm provides this flexibility, facilitating truly reusable components without framework lock-in.
+UI-centric, exclusively declarative components suffer from locked-in syndrome, making them unusable outside of a specific framework. Frequently they must extend framework classes and adhere to compositional restrictions which typically mimic the underlying DOM tree and sacrifice powerful exposed APIs for the sake of designer-centric ease and beauty.
+
+Components should instead be plain, stateful and reusable JS objects with APIs or domain models with methods. They in turn can expose one or multiple views for external composition - each with its own state and/or exposed view API (e.g. `emailApp.tableView.markUnread()`). Alternatively, component views can be crafted externally and composed declaratively or imperatively interacted with. domvm provides this flexibility, allowing for separation of concerns and truly reusable components without framework lock-in.
 
 ---
 ### Features
@@ -124,12 +126,10 @@ var myPeeps = [
 
 // our view (will receive model)
 function PeopleView(vm, people) {
-	return {
-		render: function() {
-			return ["ul.people-list", people.map(function(person) {
-				return ["li", person.name + " (aged " + person.age + ")"];
-			})];
-		}
+	return function() {
+		return ["ul.people-list", people.map(function(person) {
+			return ["li", person.name + " (aged " + person.age + ")"];
+		})];
 	};
 }
 
@@ -177,23 +177,19 @@ function PeopleView(vm, people) {
 	// expose the view model to have vm.redraw() control outside this closure
 	people.vm = vm;
 
-	return {
-		render: function() {
-			return ["ul.people-list", people.map(function(person) {
-				return person.view;
-			})];
-		}
-	}
+	return function() {
+		return ["ul.people-list", people.map(function(person) {
+			return person.view;
+		})];
+	};
 }
 
 function PersonView(vm, person) {
 	person.vm = vm;
 
-	return {
-		render: function() {
-			return ["li", person.name + " (aged " + person.age + ")"];
-		}
-	}
+	return function() {
+		return ["li", person.name + " (aged " + person.age + ")"];
+	};
 }
 
 var myPeeps = [
@@ -242,23 +238,19 @@ function Person(name, age) {
 function PeopleView(vm, people) {
 	people.vm = vm;
 
-	return {
-		render: function() {
-			return ["ul.people-list", people.map(function(person) {
-				return [PersonView, person];							// view/model coupling now defined in parent template
-			})];
-		}
-	}
+	return function() {
+		return ["ul.people-list", people.map(function(person) {
+			return [PersonView, person];							// view/model coupling now defined in parent template
+		})];
+	};
 }
 
 function PersonView(vm, person) {
 	person.vm = vm;
 
-	return {
-		render: function() {
-			return ["li", person.name + " (aged " + person.age + ")"];
-		}
-	}
+	return function() {
+		return ["li", person.name + " (aged " + person.age + ")"];
+	};
 }
 
 var myPeeps = [
@@ -273,51 +265,47 @@ domvm(PeopleView, people).mount(document.body);							// top-level view/model co
 ```
 
 ---
-#### DOM Refs, after()
+#### DOM Refs, didRedraw()
 
 Get references to created DOM nodes.
 
 ```js
 function SomeView(vm) {
-	return {
-		render: function() {
-			return ["a", {href: "#", _ref: "myLink"}, "some link"];
-		},
-		after: function() {
+	vm.on({
+		didRedraw: function() {
 			// this is called after every redraw/render and can be used to operate on the created DOM elements
 			console.log("created link element", vm.refs.myLink)
 		}
+	});
+
+	return function() {
+		return ["a", {href: "#", _ref: "myLink"}, "some link"];
 	}
 }
 ```
 
 ---
-#### Events, emit(), on:{}
+#### Events, emit(), on()
 
 Custom events can be triggered, bubbled and listened to in the view hierarchy, similar to DOM events.
 
 ```js
 function ParentView(vm) {
-	return {
-		render: function() {
-			return ["div", [
-				ChildView
-			]];
-		},
-		on: {
-			myEvent: function(arg1, arg2) {
-				console.log("caught myEvent", arguments);
-			}
+	vm.on({
+		myEvent: function(arg1, arg2) {
+			console.log("caught myEvent", arguments);
 		}
-	}
+	});
+
+	return function() {
+		return ["div", [ChildView]];
+	};
 }
 
 function ChildView(vm) {
-	return {
-		render: function() {
-			return ["em", {onclick: function(e) { vm.emit("myEvent", ["arg1", "arg2"]); }}, "some text"];
-		}
-	}
+	return function() {
+		return ["em", {onclick: function(e) { vm.emit("myEvent", ["arg1", "arg2"]); }}, "some text"];
+	};
 }
 ```
 
@@ -331,11 +319,9 @@ function ChildView(vm) {
 ```js
 
 function SomeView(vm) {
-	return {
-		render: function() {
-			return ["div#foo", "foobar"];
-		}
-	}
+	return function() {
+		return ["div#foo", "foobar"];
+	};
 }
 
 // on the backend
