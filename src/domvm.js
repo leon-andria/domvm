@@ -22,7 +22,7 @@
 	var seenTags = {};  // memoized parsed tags, todo: clean this?
 
 	var win = typeof window == "undefined" ? {} : window;
-	var doc = document;
+	var doc = typeof document == "undefined" ? {} : document;;
 
 	var TYPE_ELEM = 1;
 	var TYPE_TEXT = 2;
@@ -80,27 +80,31 @@
 
 	// creates closure
 	// TODO: need way to indicate detached vm vs parent-less root, to prevent un-needed initial redraw
-	function createView(viewFn, model, _key, rendArgs, opts, parentNode, idxInParent) {
+	function createView(viewFn, model, key, impCtx, opts, parentNode, idxInParent) {
 		var isRootNode = !parentNode;
 
-		// for domvm([MyView, model, _key])
+		// for domvm([MyView, model, key])
 		if (isArr(viewFn)) {
-			model = viewFn[1];
-			_key = viewFn[2];
-			rendArgs = viewFn[3];
-			opts = viewFn[4];
-			viewFn = viewFn[0];
+			model	= viewFn[1];
+			key		= viewFn[2];
+			impCtx	= viewFn[3];
+			opts	= viewFn[4];
+			viewFn	= viewFn[0];
 		}
 
-		var origModel = model || null;
-
-		// special case model = ctx + model
-		model = (model && model.ctx && model.model) ? model.model : origModel;
+		// if key is `false`, then model arg is treated as (non-persistent) impCtx
+		// same as doing domvm(MyView, null, null, model)
+		if (key === false) {
+			impCtx = model;
+			model = null;
+			key = null;
+		}
 
 		var vm = {
-			ctx: {},
+			exp: {},
+			imp: impCtx || {},
 			node: null,
-			view: [viewFn, model, _key],
+			view: [viewFn, model, key],
 			render: null,
 			on: function(ev, fn) {
 				if (fn)
@@ -155,7 +159,7 @@
 		};
 
 		vm.events._redraw = vm.redraw;
-		vm.render = viewFn.call(vm.ctx, vm, origModel, _key);
+		vm.render = viewFn.call(vm.exp, vm, model, key);
 
 		// targeted by depth or by key, root = 1000
 		// todo: pass through args
@@ -165,35 +169,35 @@
 		};
 
 		if (parentNode)
-			return moveTo(parentNode, idxInParent, rendArgs);
+			return moveTo(parentNode, idxInParent, impCtx);
 		else
-			return redraw(rendArgs);
+			return redraw(impCtx);
 
-		// transplants node into tree, optionally updating rendArgs
-		function moveTo(parentNodeNew, idxInParentNew, rendArgsNew) {
+		// transplants node into tree, optionally updating model & impCtx
+		function moveTo(parentNodeNew, idxInParentNew, newImpCtx) {
 			parentNode = parentNodeNew;
 			updIdx(idxInParentNew);
 
-			return redraw(rendArgsNew, false);
+			return redraw(newImpCtx, false);
 		}
 
 		function updIdx(idxInParentNew) {
 			idxInParent = idxInParentNew;
 		}
 
-		function redraw(rendArgsNew, isRedrawRoot) {
+		function redraw(newImpCtx, isRedrawRoot) {
 			execAll(vm.events.willRedraw);
 
-			rendArgs = rendArgsNew || rendArgs;
+			vm.imp = newImpCtx != null ? newImpCtx : impCtx;
 
 			vm.refs = {};
 			vm.keyMap = {};
 
 			var old = vm.node;
-			var def = vm.render.apply(model, rendArgs);
+			var def = vm.render.call(model, vm.imp);
 			var node = initNode(def, parentNode, idxInParent, vm);
 
-			node.key = isVal(_key) ? _key : node.key;
+			node.key = isVal(key) ? key : node.key;
 
 			node.vm = vm;
 			vm.node = node;
@@ -468,7 +472,7 @@
 								donor2.vm.moveTo(node, i, kid[3]);
 							else if (donor2type === DONOR_DOM) {
 								// TODO: instead, re-use old dom with new node here (loose match)
-								createView.apply(null, [kid[0], kid[1], kid[2], kid[3], kid[4], node, i]);
+								createView.call(null, kid[0], kid[1], kid[2], kid[3], kid[4], node, i);
 								return;
 							}
 						}
@@ -495,16 +499,12 @@
 		if (node.type == TYPE_ELEM) {
 			if (wasDry) {
 				node.el = node.ns ? doc.createElementNS(NS[node.ns], node.tag) : doc.createElement(node.tag);
-
-				if (node.vm)
-					node.el._vm = node.vm;
-
 				node.props && patchProps(node);
 			}
 
-			if (isArr(node.body)) {
+			if (isArr(node.body))
 				node.body.forEach(hydrateNode);
-			}
+
 			// for body defs like ["a", "blaahhh"], entire body can be dumped at once
 			else if (wasDry && isVal(node.body))
 				node.el.textContent = node.body;
@@ -512,6 +512,9 @@
 		// for body defs like ["foo", ["a"], "bar"], create separate textnodes
 		else if (node.type == TYPE_TEXT && wasDry)
 			node.el = doc.createTextNode(node.body);
+
+		// reverse-ref
+		node.el._node = node;
 
 		// slot this element into correct position
 		var par = node.parent;
