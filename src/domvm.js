@@ -69,7 +69,6 @@
 		useRaf: true,
 		viewScan: false,	// enables aggressive unkeyed view reuse
 		useDOM: false,
-
 	};
 
 	createView.config = function(newCfg) {
@@ -124,23 +123,13 @@
 				didDestroy:	[],
 			},
 			redraw: cfg.useRaf ? raft(redraw) : redraw,
+		//	patch: cfg.useRaf ? raft(patchNode) : patchNode,		// why no repaint?
+			patch: patchNode,
 			emit: emit,
 			refs: {},
+		//	keyMap: {},
 			html: function() {
 				return collectHtml(vm.node);
-			},
-			keyMap: {},
-			patch: function() {
-				var targs = arguments;
-
-				for (var i = 0; i < targs.length; i++) {
-					var key = targs[i][1]._key,
-						donor = vm.keyMap[key],
-						parent = donor.parent,
-						node = buildNode(initNode(targs[i], parent, donor.idx, vm), donor);
-
-					parent.body[donor.idx] = parent.keyMap[key] = vm.keyMap[key] = node;
-				}
 			},
 			mount: function(el) {		// appendTo?
 				hydrateNode(vm.node);
@@ -185,13 +174,37 @@
 			idxInParent = idxInParentNew;
 		}
 
+		/* TODO
+		function spliceNodes() {}
+		*/
+
+		// need disclaimer that old and new nodes must be same type
+		// and must have matching keyes if are keyed
+		function patchNode(oldNode, newTpl) {
+		//	execAll(vm.events.willRedraw);
+
+			var donor = oldNode,
+				parent = donor.parent,
+				newNode = buildNode(initNode(newTpl, parent, donor.idx, vm), donor);
+
+			parent.body[donor.idx] = newNode;
+
+			var key = newNode.key;
+
+			if (isVal(key))
+				parent.keyMap[key] = newNode;
+			//	parent.keyMap[key] = vm.keyMap[key] = newNode;
+
+		//	execAll(vm.events.didRedraw);
+		}
+
 		function redraw(newImpCtx, isRedrawRoot) {
 			execAll(vm.events.willRedraw);
 
 			vm.imp = newImpCtx != null ? newImpCtx : impCtx;
 
 			vm.refs = {};
-			vm.keyMap = {};
+		//	vm.keyMap = {};
 
 			var old = vm.node;
 			var def = vm.render.call(model, vm.imp);
@@ -434,7 +447,7 @@
 
 				if (isVal(key)) {
 					keyMap[key] = i;
-					ownerVm.keyMap[key] = node2;
+				//	ownerVm.keyMap[key] = node2;
 					anyKeys = true;
 				}
 
@@ -459,7 +472,7 @@
 				var isView = isArr(kid);
 
 				if (donor) {
-					var donor2loc = findDonor(kid, node, donor);	// , i, i
+					var donor2loc = findDonor(kid, node, donor);			// , i, i		// if flagged node._static, just use i,i / DONOR_NODE
 
 					if (donor2loc !== null) {
 						var donor2idx = donor2loc[0];
@@ -472,7 +485,7 @@
 								donor2.vm.moveTo(node, i, kid[3]);
 							else if (donor2type === DONOR_DOM) {
 								// TODO: instead, re-use old dom with new node here (loose match)
-								createView.call(null, kid[0], kid[1], kid[2], kid[3], kid[4], node, i);
+								createView(kid[0], kid[1], kid[2], kid[3], kid[4], node, i);
 								return;
 							}
 						}
@@ -484,7 +497,7 @@
 				}
 				// fall through no donor found
 				if (isView)
-					createView.apply(null, [kid[0], kid[1], kid[2], kid[3], kid[4], node, i]);
+					createView(kid[0], kid[1], kid[2], kid[3], kid[4], node, i);
 				else
 					node.body[i] = buildNode(kid);
 			});
@@ -506,8 +519,12 @@
 				node.body.forEach(hydrateNode);
 
 			// for body defs like ["a", "blaahhh"], entire body can be dumped at once
-			else if (wasDry && isVal(node.body))
-				node.el.textContent = node.body;
+			else if (wasDry && isVal(node.body)) {
+				if (node.raw)
+					node.el.innerHTML = node.body;
+				else
+					node.el.textContent = node.body;
+			}
 		}
 		// for body defs like ["foo", ["a"], "bar"], create separate textnodes
 		else if (node.type == TYPE_TEXT && wasDry)
@@ -611,8 +628,12 @@
 		if (nTxt && n.body !== o.body) {
 			if (oTxt && n.el.firstChild)
 				n.el.firstChild.nodeValue = n.body;
-			else
-				n.el.textContent = n.body;
+			else {
+				if (n.raw)
+					n.el.innerHTML = n.body;
+				else
+					n.el.textContent = n.body;
+			}
 		}
 		// text -> []
 		else if (oTxt && !nTxt)
@@ -682,6 +703,7 @@
 //			math: false,
 			ns: null,
 			guard: false,	// created, updated, but children never touched
+			raw: false,
 			props: null,
 //			on: null,
 			el: null,
@@ -769,8 +791,15 @@
 			if (isEvProp(i))
 				props[i] = wrapHandler(props[i], ownerVm.view[1] || null);
 			// getters
-			else if (isFunc(props[i]))
-				props[i] = props[i]();
+			else if (isFunc(props[i])) {
+				// for router
+				if (i == "href") {
+					props.onclick = props[i];
+					props.href = props[i].url;
+				}
+				else
+					props[i] = props[i]();
+			}
 		}
 
 		if (isObj(props.style)) {
@@ -789,14 +818,17 @@
 
 		if (props._ref)
 			node.ref = props._ref;
+		if (props._raw)
+			node.raw = true;
 //		if (props._name)
 //			node.name = props._name;
 		if (props._guard)
-			node.guard = props._guard;
+			node.guard = true;
 
 		props._ref =
 		props._key =
 //		props._name =
+		props._raw =
 		props._guard = null;
 	}
 
