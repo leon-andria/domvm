@@ -45,12 +45,14 @@
 	<script>
 		function TodoList(items) {
 			this.items = items || [];
+			this.view = domvm.view(TodoListView, this);
 		}
 
 		TodoList.prototype = {
 			add: function(text, isDone) {
 				if (!text.length) return;
 				this.items.push({text: text, done: isDone || false});
+				this.view.redraw();
 				return this.items.length - 1;
 			},
 
@@ -58,10 +60,12 @@
 				this.items[idx].done = isDone;
 				if (text !== null)
 					this.items[idx].text = text;
+				this.view.redraw();
 			},
 
 			remove: function(idx) {
 				this.items.splice(idx, 1);
+				this.view.redraw();
 			}
 		};
 
@@ -87,7 +91,6 @@
 
 				function handleChange(e) {
 					list.update(e.target.dataset.idx, null, e.target.checked);
-					vm.redraw();
 				}
 
 				function handleAdd(e) {
@@ -97,7 +100,6 @@
 						list.add(inpEl.value);
 						inpEl.value = "";
 						inpEl.focus();
-						vm.redraw();
 					}
 				}
 			};
@@ -111,27 +113,22 @@
 			{text: "watch tv", done: true},
 		];
 
-//		var todos = [];
-//		for (var i = 0; i < 1000; i++)
-//			todos.push({text: randStr(5), done: randItem([true, false])});
-
 		var myTodo = new TodoList(todos);
-		domvm.view(TodoListView, myTodo).mount(document.body);
-/*
-		function randStr(len) {
-			var text = "";
-			var possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+		myTodo.view.mount(document.body);
 
-			for( var i = 0; i < len; i++ )
-				text += possible.charAt(Math.floor(Math.random() * possible.length));
+		setTimeout(function() {
+			myTodo.update(1, null, false);
+			myTodo.update(3, null, true);
+		}, 1000);
 
-			return text;
-		}
+		setTimeout(function() {
+			myTodo.add("new item", false);
+		}, 2000);
 
-		function randItem(arr) {
-			return arr[Math.floor(Math.random()*arr.length)];
-		}
-*/
+		setTimeout(function() {
+			myTodo.remove(0);
+			myTodo.remove(2);
+		}, 3000);
 	</script>
 </body>
 </html>
