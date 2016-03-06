@@ -45,7 +45,7 @@
 			// undefined/null key signals a persistent model
 			key == null && model != null ? model :
 			// string or numeric key - persistent model tracked by key
-			u.isVal(key) ? key :
+			u.isVal(key) || u.isObj(key) || u.isArr(key) || u.isFunc(key) ? key :
 			null
 		);
 	}
@@ -844,11 +844,15 @@
 				// for router
 				if (i == "href") {
 					props.onclick = props[i];
-					props.href = props[i].path;
+					props.href = props[i].href;
 				}
 				else
 					props[i] = props[i]();
 			}
+
+			// dynamic props get auto-added from attrs defs
+			if (u.isDynProp(node.tag, i))
+				props["."+i] = props[i];
 		}
 
 		if (u.isObj(props.style)) {
@@ -899,12 +903,12 @@
 			var ns = np.style;
 
 			if (u.isObj(os) || u.isObj(ns)) {
-				patch(n.el, os || {}, ns || {}, setCss, delCss, n.ns, init);
+				patch(n.el, n.tag, os || {}, ns || {}, setCss, delCss, n.ns, init);
 				op.style = np.style = null;
 			}
 
 			// alter attributes
-			patch(n.el, op, np, setAttr, delAttr, n.ns, init);
+			patch(n.el, n.tag, op, np, setAttr, delAttr, n.ns, init);
 
 			if (ns)
 				np.style = ns;
@@ -912,13 +916,13 @@
 	}
 
 	// op = old props, np = new props, set = setter, del = unsetter
-	function patch(targ, op, np, set, del, ns, init) {
+	function patch(targ, tag, op, np, set, del, ns, init) {
 		for (var name in np) {
 			if (np[name] === null) continue;
 
 			// add new or mutate existing not matching old
 			// also handles diffing of wrapped event handlers via exposed original (_fn)
-			if (np[name] !== op[name])
+			if (np[name] !== op[name] || name[0] === ".")
 				set(targ, name, np[name], ns, init);
 		}
 		// remove any removed
@@ -953,12 +957,8 @@
 			targ[name] = val;	  // else test delegation for val === function vs object
 		else if (val === false)
 			delAttr(targ, name, ns, init);
-		else {
-			if (val === true)
-				val = "";
-
-			targ.setAttribute(name, val);
-		}
+		else
+			targ.setAttribute(name, val === true ? "" : val);
 	}
 
 	function delAttr(targ, name, ns, init) {
