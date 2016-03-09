@@ -15,8 +15,8 @@ Architect reusable apps without fighting a pre-defined structure, learning tomes
 #### Features
 
 - Thin API, no dependencies, build = concat & min
+- Fast (100% faster than Mithril, React, Riot; 30% faster than Vue, Angular 2, Aurelia) - [dbmonster](http://leeoniya.github.io/domvm/test/bench/dbmonster/), [granular patch](http://leeoniya.github.io/domvm/test/bench/patch/)
 - Small - ~10k min core + ~4k router, isomorphism, observers (~6k everything gzipped)
-- Fast (2x Mithril, 3x React) - [dbmonster](http://leeoniya.github.io/domvm/test/bench/dbmonster/), [granular patch](http://leeoniya.github.io/domvm/test/bench/patch/)
 - Concise js templates. No html-in-js, js-in-html or other esoteric syntax requiring tooling/compilation
 - Sub-views - declarative *or* imperative, freely composable, stateful and independently refreshable
 - Synthetic events - emit custom events with data to ancestor views
@@ -536,15 +536,16 @@ Some things to keep in mind. The `router` argument passed to the closure is the 
 ```js
 function MyRouter(router, deps) {
 	router.config({
-		// use history API instead of '#' hashes. default is false (see below).
+		// Use history API instead of '#' hashes. Default is false (see below).
 		useHist: false,
-		// a root prefix must be specified if the SPA is not running under
+		// A root prefix must be specified if the SPA is not running under
 		// the domain root (only needed if using the history API)
 		root: "/myApp",
 		init: function() {
-			// this function will be called once the router has initialized and is able to route.
-			// use it to mount or redraw your app's root view, assuming your app uses a `router.location()`
-			// to determine and render the appropriate view
+			// This function will be called once the router has initialized and is able to route.
+			// Use it to mount or redraw your app's root view. It's recommended that you dep-inject
+			// the router into your app before mounting so it can use href generation for its templates
+			// and `router.location()` to determine and render the appropriate views
 		}
 	});
 
@@ -553,6 +554,9 @@ function MyRouter(router, deps) {
 	};
 }
 ```
+
+For a working example of this, check out `/demos/threaditjs`: https://github.com/leeoniya/domvm/blob/master/demos/threaditjs/app.js#L3-L48
+
 
 ---
 ### Demos
