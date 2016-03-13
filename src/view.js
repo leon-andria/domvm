@@ -75,7 +75,7 @@
 			update: function(newModel, doRedraw) {
 				// persistent models cannot be updated with new data via the view
 				// this function is for dumb data re-rendering, key must have been false
-				if (newModel != null && key !== model)
+				if (newModel != null && (key !== model || u.isVal(key)))
 					model = vm.model = newModel;
 				return doRedraw !== false ? redraw(0) : vm;
 			},
@@ -813,11 +813,11 @@
 
 			// plain cb
 			if (u.isFunc(fns))
-				res = fns.call(ctx, e, vnode);
+				res = fns.call(ctx, e, vnode, ownerVm);
 			// parameterized cb: [cb, arg1...]
 			else if (u.isArr(fns)) {
 				data = fns.slice(1);
-				res = fns[0].apply(ctx, data.concat(e, vnode));
+				res = fns[0].apply(ctx, data.concat(e, vnode, ownerVm));
 			}
 			// object of deleg handlers {".moo": ...}
 			else if (u.isObj(fns)) {
@@ -827,11 +827,11 @@
 						// deleg + parameterized
 						if (u.isArr(cb)) {
 							data = cb.slice(1);
-							res = cb[0].apply(ctx, data.concat(e, vnode));
+							res = cb[0].apply(ctx, data.concat(e, vnode, ownerVm));
 						}
 						// deleg & plain cb
 						else if (u.isFunc(cb))
-							res = cb.call(ctx, e, vnode);
+							res = cb.call(ctx, e, vnode, ownerVm);
 					}
 				}
 			}
