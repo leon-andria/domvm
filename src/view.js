@@ -100,23 +100,20 @@
 				return collectHtml(vm.node);
 			},
 		*/
-			mount: function(el, isRoot) {
-				vm.hooks && u.execAll(vm.hooks.willMount);
+			mount: function(parentEl, isRoot) {
+				var withEl = null;
 
-				if (isRoot)
-					el.textContent = '';
+				if (isRoot) {
+					parentEl.textContent = '';
+					withEl = parentEl;
+					parentEl = null;
+				}
 
-				hydrateNode(vm.node, isRoot ? el : null);
-
-				if (!isRoot)
-					el.insertBefore(vm.node.el, null);
-
-				vm.hooks && u.execAll(vm.hooks.didMount);
-
+				hydrateNode(vm.node, withEl, null, parentEl);
 				return vm;
 			},
-			attach: function(el) {
-				hydrateWith(vm.node, el);		// will/didAttach?
+			attach: function(rootEl) {
+				hydrateWith(vm.node, rootEl);		// will/didAttach?
 				return vm;
 			},
 		//	detach: detach,
@@ -192,12 +189,13 @@
 				return targ.vm;
 			}
 
-			vm.hooks && u.execAll(vm.hooks.willRedraw);
+			var old = vm.node;
+
+			old && vm.hooks && u.execAll(vm.hooks.willRedraw);
 
 			vm.refs = {};
 		//	vm.keyMap = {};
 
-			var old = vm.node;
 			var def = vm.render.call(vm.api, vm, model, key);
 			var node = initNode(def, parentNode, idxInParent, vm);
 
@@ -255,7 +253,7 @@
 			// FTW: http://blog.millermedeiros.com/promise-nexttick/
 			// https://jakearchibald.com/2015/tasks-microtasks-queues-and-schedules/
 			Promise.resolve().then(function() {
-				vm.hooks && u.execAll(vm.hooks.didRedraw);
+				old && vm.hooks && u.execAll(vm.hooks.didRedraw);
 			});
 
 			return vm;
@@ -306,9 +304,9 @@
 	// absorbs active dom, assumes it was built by dumping the html()
 	// of this node into innerHTML (isomorphically)
 	// (todo: bind/refs)
-	function hydrateWith(node, el) {
-		node.el = el;
-		el._node = node;
+	function hydrateWith(node, withEl) {
+		node.el = withEl;
+		withEl._node = node;
 
 		// patch props not present in HTML attrs
 		for (var prop in node.props) {
@@ -316,13 +314,13 @@
 				name = u.isEvProp(prop) ? prop : prop[0] === "."  ? prop.substr(1) : null;
 
 			if (name !== null)
-				el[name] = val;
+				withEl[name] = val;
 		}
 
 		if (u.isArr(node.body)) {
 			for (var i = 0; i < node.body.length; i++) {
 				var node2 = node.body[i];
-				hydrateWith(node2, el.childNodes[i]);
+				hydrateWith(node2, withEl.childNodes[i]);
 			}
 		}
 	}
@@ -494,12 +492,15 @@
 		return node;
 	}
 
-	function hydrateNode(node, el, sibAtIdx) {
+	function hydrateNode(node, withEl, sibAtIdx, parentEl) {
 		var wasDry = !node.el;
+
+		if (wasDry && node.vm && node.vm.hooks)
+			u.execAll(node.vm.hooks.willMount);
 
 		if (node.type == u.TYPE_ELEM) {
 			if (wasDry) {
-				node.el = el && el.nodeName ? el : node.ns ? doc.createElementNS(NS[node.ns], node.tag) : doc.createElement(node.tag);
+				node.el = withEl || (node.ns ? doc.createElementNS(NS[node.ns], node.tag) : doc.createElement(node.tag));
 				node.props && patchProps(node);
 			}
 
@@ -522,26 +523,33 @@
 		else if (node.type == u.TYPE_TEXT && wasDry)
 			node.el = doc.createTextNode(node.body);
 
+		var shouldMove = true;
+
 		// reverse-ref
 		node.el._node = node;
 
 		if (sibAtIdx === node.el)
-			return false;
+			shouldMove = false;
 
 		// slot this element into correct position
 		var par = node.parent;
 
 		// insert and/or reorder
 	//	if (par && par.el && par.el.childNodes[node.idx] !== node.el)
-		if (par && par.el) {
-			fireHooks(node.hooks, wasDry ? "Insert" : "Reinsert", insertNode, [node, sibAtIdx]);
-			return true;
+		if (shouldMove && (parentEl || par && par.el)) {
+			fireHooks(node.hooks, wasDry ? "Insert" : "Reinsert", insertNode, [node, sibAtIdx, parentEl]);
+			shouldMove = true;
 		}
+
+		if (wasDry && node.vm && node.vm.hooks)
+			u.execAll(node.vm.hooks.didMount);
+
+		return shouldMove;
 	}
 
-	function insertNode(node, sibAtIdx) {
+	function insertNode(node, sibAtIdx, parentEl) {
 	//	var par = ;
-		node.parent.el.insertBefore(node.el, sibAtIdx);
+		(parentEl || node.parent.el).insertBefore(node.el, sibAtIdx);
 	//	par.el.insertBefore(node.el, par.el.childNodes[node.idx]);
 	//	return [node];
 	}
