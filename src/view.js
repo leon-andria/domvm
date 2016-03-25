@@ -228,7 +228,7 @@
 					if (!vm.parent)
 						vm.parent = ancest.vm;
 					if (unjRef !== null)
-						ancest.vm.refs[unjRef] = node;
+						u.deepSet(ancest.vm.refs, unjRef, node);
 				}
 
 				ancest = ancest.parent;
@@ -372,7 +372,7 @@
 
 		// store a ref to this node for later ref collection to avoid full tree walking
 		if (node.ref !== null)
-			ownerVm.refs[node.ref] = node;
+			u.deepSet(ownerVm.refs, node.ref, node);
 
 		node.parent = parentNode;
 		node.idx = idxInParent;
@@ -569,7 +569,7 @@
 
 		if (wasDry && node.vm && node.vm.hooks) {
 			Promise.resolve().then(function() {
-				u.execAll(node.vm.hooks.didMount, [node.vm]);
+				!node.moved && u.execAll(node.vm.hooks.didMount, [node.vm]);
 			});
 		}
 
