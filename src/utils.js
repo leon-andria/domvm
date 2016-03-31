@@ -145,5 +145,5 @@
 		}
 	};
 
-	domvm.util = u;
+	domvm.utils = u;
 })(domvm);
