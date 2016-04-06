@@ -193,14 +193,16 @@
 				// only create faux newNode if no followup graftNode() is expected as with willRecycle()
 				// hooks...and we're simply patching the current/old node in-place
 				if (isCurNode) {
+					var props = Object.create(targNode.props);
+
+					props.class = cls;
+					props.style = sty;
+
 					var newNode = {
 						tag: targNode.tag,
 						el: targNode.el,
 						ns: targNode.ns,
-						props: {
-							class: cls,
-							style: sty,
-						}
+						props: props,
 					};
 
 					patchProps(newNode, targNode);
@@ -436,15 +438,19 @@
 						// kill empty array nodes
 						if (!def2.length)
 							killIt = true;
-						// handle arrays of arrays, avoids need for concat() in tpls
-						else if (u.isArr(def2[0]))
-							mergeIt = true;
-						else if (u.isFunc(def2[0]))		// decl sub-view
-							key = getViewKey(def2[1], def2[2]);
-						else {
+						// tag node
+						else if (typeof def2[0] == "string" && def2[0] !== "") {
 							node2 = initNode(def2, node, i, ownerVm);
 							key = node2.key;
 						}
+						// decl sub-view
+						else if (u.isFunc(def2[0]))
+							key = getViewKey(def2[1], def2[2]);
+						// handle arrays of arrays, avoids need for concat() in tpls
+//						else if (u.isArr(def2[0]))
+//							mergeIt = true;
+						else
+							mergeIt = true;
 					}
 					else if (def2IsObj) {
 						if (u.isFunc(def2.redraw)) {	// pre-init vm
