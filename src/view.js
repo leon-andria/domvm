@@ -234,6 +234,9 @@
 				return targ.vm;
 			}
 
+			if (!vm.render)
+				return vm;
+
 			var old = vm.node;
 
 			old && fireHook(vm, "willRedraw", vm);
