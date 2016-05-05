@@ -100,16 +100,21 @@
 				u.execAll(handlers, e);
 				return api;
 			}),
-			prop: function prop(initVal, asyncVal) {		// , model, name (if you want the handler to know ctx)
+			prop: function prop(initVal, asyncVal, middleWare) {		// , model, name (if you want the handler to know ctx)
 				var val = initVal;
 
 				// TODO: DRY out with .sync setter, add deepSet?
 				var fn = function(newVal, handler, ev) {
 					if (arguments.length && newVal !== val) {
-						var oldVal = val;
-						val = newVal;
+						ev = ev || {type: "prop", prop: fn, data: {old: val, new: newVal}};
 
-						ev = ev || {type: "prop", prop: fn, data: {old: oldVal, new: newVal}};
+						if (middleWare)
+							newVal = middleWare(ev);
+
+						if (typeof newVal == "undefined" || newVal === val)
+							return val;
+						else
+							val = ev.data.new = newVal;
 
 						if (u.isFunc(handler))
 							handler(ev);
