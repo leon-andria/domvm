@@ -1675,6 +1675,35 @@ QUnit.module("Unrenderable values");
 
 		evalOut(assert, vm2.node.el, domvm.html(vm2.node), expcHtml, callCounts, { createElement: 1, createTextNode: 1, insertBefore: 2 });
 	});
+
+	QUnit.test('Empty string values in 0 idx should be treated as text nodes', function(assert) {
+		tpl = ["div", ["", {_raw: true}, "test"]];
+
+		var expcHtml = '<div>test</div>';
+		instr.start();
+		var vm2 = domvm.view(ViewAny).mount(testyDiv);
+		var callCounts = instr.end();
+
+		evalOut(assert, vm2.node.el, domvm.html(vm2.node), expcHtml, callCounts, { createElement: 1, createTextNode: 1, insertBefore: 2 });
+
+		tpl = ["div", [["", "test"]]];
+
+		var expcHtml = '<div>test</div>';
+		instr.start();
+		var vm2 = domvm.view(ViewAny).mount(testyDiv);
+		var callCounts = instr.end();
+
+		evalOut(assert, vm2.node.el, domvm.html(vm2.node), expcHtml, callCounts, { createElement: 1, createTextNode: 1, insertBefore: 2 });
+
+		tpl = ["div", ["", null, "test"]];
+
+		var expcHtml = '<div>test</div>';
+		instr.start();
+		var vm2 = domvm.view(ViewAny).mount(testyDiv);
+		var callCounts = instr.end();
+
+		evalOut(assert, vm2.node.el, domvm.html(vm2.node), expcHtml, callCounts, { createElement: 1, createTextNode: 1, insertBefore: 2 });
+	});
 })();
 
 QUnit.module("Non-persistent model replacement");

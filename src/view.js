@@ -480,7 +480,7 @@
 					else if (def2._expl)
 						mergeIt = true;
 					// tag node
-					else if (typeof def2[0] == "string" && def2[0] !== "") {
+					else if (typeof def2[0] == "string") {
 						node2 = initNode(def2, node, i, ownerVm);
 						key = node2.key;
 					}
@@ -891,7 +891,9 @@
 		var len = raw.length;
 
 		if (u.isArr(raw) && len) {
-			node.type = u.TYPE_ELEM;
+			var isTxt = raw[0] === "";
+
+			node.type = isTxt ? u.TYPE_TEXT : u.TYPE_ELEM;
 
 			if (len > 1) {
 				var bodyIdx = 1;
@@ -907,7 +909,8 @@
 					node.body = raw.slice(bodyIdx);
 			}
 
-			procTag(raw[0], node);
+			if (!isTxt)
+				procTag(raw[0], node);
 
 			if (node.props)
 				procProps(node.props, node, ownerVm);
