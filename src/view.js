@@ -81,6 +81,27 @@
 
 		key = getViewKey(model, key);
 
+		var oldVals = true;
+		var getVals = function(model) {
+			return true;
+		};
+
+		function diff() {
+			var newVals = getVals(model);
+
+			if (oldVals === newVals)
+				return true;
+
+			for (var i = 0; i < newVals.length; i++) {
+				if (newVals[i] !== oldVals[i]) {
+					oldVals = newVals;
+					return true;
+				}
+			}
+
+			return false;
+		};
+
 		var vm = {
 			api: {},
 			node: null,
@@ -95,6 +116,7 @@
 					fireHook(vm, "willUpdate", vm, newModel);
 					model = vm.model = newModel;
 				}
+
 				return doRedraw !== false ? redraw(0) : vm;
 			},
 			on: function(ev, fn) {
@@ -103,6 +125,9 @@
 			hook: function(ev, fn) {
 				vm.hooks = vm.hooks || {};
 				addHandlers(vm.hooks, ev, fn);
+			},
+			diff: function(_getVals) {
+				getVals = _getVals;
 			},
 		//	off: function(ev, fn) {},
 			events: {},		// targeted bubbling events & _redraw requests
@@ -115,6 +140,12 @@
 			parent: null,
 			body: [],
 			mount: function(parentEl, isRoot) {
+				if (!vm.node)
+					redraw(0);
+
+				if (parentEl == null)
+					return vm;
+
 				var withEl = null;
 
 				if (isRoot) {
@@ -130,7 +161,11 @@
 				return vm;
 			},
 			attach: function(rootEl) {
+				if (!vm.node)
+					redraw(0);
+
 				hydrateWith(vm.node, rootEl);		// will/didAttach?
+
 				return vm;
 			},
 		//	detach: detach,
@@ -150,8 +185,10 @@
 
 		if (parentNode)
 			return moveTo(parentNode, idxInParent);
-		else
-			return redraw(0);
+//		else
+//			return redraw(0);
+
+		return vm;
 
 		function addHandlers(ctx, ev, fn) {
 			if (fn) {
@@ -258,7 +295,7 @@
 		//	vm.keyMap = {};
 
 //			try {
-				var def = vm.render.call(vm.api, vm, model, key);
+				var def = diff() && vm.render.call(vm.api, vm, model, key);
 //			} catch (e) {
 //				console.log(e);
 //				def = false;
@@ -305,7 +342,7 @@
 			var donor = old;
 
 			// clear donor if new tag, will replaceNode
-			if (old && (node.type !== old.type || node.tag !== old.tag)) {
+			if (old && old.el && (node.type !== old.type || node.tag !== old.tag)) {
 				donor = null;
 				var repl = true;
 				var oldParentEl = old.el.parentNode;
